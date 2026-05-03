@@ -10,11 +10,12 @@ from typing import Any
 from jax import numpy as jnp
 
 from jaqmc.estimator import EstimatorLike
-from jaqmc.estimator.density import SphericalDensity
-from jaqmc.estimator.kinetic import SphericalKinetic
+from jaqmc.estimator.density import SphericalDensity, DiskDensity
+from jaqmc.estimator.kinetic import SphericalKinetic, DiskKinetic
 from jaqmc.estimator.loss_grad import LossAndGrad
 from jaqmc.estimator.total_energy import TotalEnergy
 from jaqmc.geometry.sphere import sphere_proposal
+from jaqmc.geometry.disk import disk_proposal
 from jaqmc.optimizer.kfac import KFACOptimizer
 from jaqmc.sampler.mcmc import MCMCSampler
 from jaqmc.utils.config import ConfigManager, ConfigManagerLike
@@ -23,14 +24,23 @@ from jaqmc.workflow.stage.evaluation import EvaluationWorkStage
 from jaqmc.workflow.stage.vmc import VMCWorkStage
 from jaqmc.workflow.vmc import VMCWorkflow
 
-from .config import HallSphericalConfig, HallSystemConfig
+
+from .config import HallDiskConfig, HallSphericalConfig, HallSystemConfig
+
+
 from .data import data_init
+from .estimator.disk import (
+    DiskOneRDM,
+    DiskPairCorrelation,
+    DiskPenalizedLoss,  
+)
 from .estimator.spherical import (
     SphericalOneRDM,
     SphericalPairCorrelation,
     SphericalPenalizedLoss,
 )
 from .hamiltonian.spherical import SpherePotential
+from .hamiltonian.disk import DiskPotential
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +79,8 @@ class HallTrainWorkflow(VMCWorkflow):
         estimators = make_estimators(cfg, wf, system_config, always_enable_energy=True)
 
         train = VMCWorkStage.builder(cfg.scoped("train"), wf)
-        sampler = cfg.get("sampler", MCMCSampler(sampling_proposal=sphere_proposal))
+        proposal = disk_proposal if isinstance(system_config, HallDiskConfig) else sphere_proposal
+        sampler = cfg.get("sampler", MCMCSampler(sampling_proposal=proposal))
         train.configure_sample_plan(wf.logpsi, {"electrons": sampler})
         train.configure_optimizer(default=KFACOptimizer, f_log_psi=wf.logpsi)
         train.configure_estimators(**estimators)
@@ -89,7 +100,8 @@ class HallEvalWorkflow(EvaluationWorkflow):
         self.data_init = partial(data_init, system_config)
 
         evaluation = EvaluationWorkStage.builder(cfg, wf, name="evaluation")
-        sampler = cfg.get("sampler", MCMCSampler(sampling_proposal=sphere_proposal))
+        proposal = disk_proposal if isinstance(system_config, HallDiskConfig) else sphere_proposal
+        sampler = cfg.get("sampler", MCMCSampler(sampling_proposal=proposal))
         evaluation.configure_sample_plan(wf.logpsi, {"electrons": sampler})
         eval_estimators: dict[str, EstimatorLike] = make_estimators(
             cfg, wf, system_config
@@ -115,8 +127,13 @@ def configure_system(
         wf.nspins = system_config.nspins
         wf.monopole_strength = system_config.flux / 2
         wf.flux = system_config.flux
+    elif isinstance(system_config, HallDiskConfig):
+        wf = cfg.get_module("wf", "jaqmc.app.hall.wavefunction.disk.mhpo")
+        wf.nspins = system_config.nspins
+        wf.monopole_strength = system_config.flux
+        wf.flux = system_config.flux
     else:
-        raise NotImplementedError("Geometries other than spherical is not implemented.")
+        raise NotImplementedError("Geometries other than spherical or disk is not implemented.")
 
     return system_config, wf
 
@@ -129,7 +146,66 @@ def make_estimators(
 ):
     if isinstance(system_config, HallSphericalConfig):
         return make_spherical_estimators(cfg, wf, system_config, always_enable_energy)
-    raise NotImplementedError("Geometries other than spherical is not implemented.")
+    elif isinstance(system_config, HallDiskConfig):
+        return make_disk_estimators(cfg, wf, system_config, always_enable_energy)
+    raise NotImplementedError("Geometries other than spherical or disk is not implemented.")
+
+def make_disk_estimators(
+    cfg: ConfigManagerLike,
+    wf: Any,
+    system_config: HallDiskConfig,
+    always_enable_energy: bool = False,
+) -> dict[str, EstimatorLike]:
+    estimators: dict[str, EstimatorLike] = {}
+    if always_enable_energy or cfg.get("estimators.enabled.energy", True):
+        Q = system_config.flux
+        radius = system_config.radius if system_config.radius is not None else float(jnp.sqrt(2 * Q))
+        
+        estimators["kinetic"] = cfg.get(
+            "estimators.energy.kinetic",
+            DiskKinetic(
+                f_log_psi=wf.logpsi,
+            ),
+        )
+        estimators["potential"] = cfg.get(
+            "estimators.energy.potential",
+            DiskPotential(
+                interaction_type=system_config.interaction_type,
+                monopole_strength=Q,
+                radius=radius,
+                distance=system_config.d,
+                interaction_strength=system_config.interaction_strength,
+                nspins=system_config.nspins,
+            ),
+        )
+        estimators["total"] = TotalEnergy()
+
+        if system_config.lz_penalty or system_config.l2_penalty:
+            estimators["penalty"] = SphericalPenalizedLoss(
+                lz_center=system_config.lz_center,
+                lz_penalty=system_config.lz_penalty,
+                l2_penalty=system_config.l2_penalty,
+            )
+
+    if cfg.get("estimators.enabled.density", False):
+        estimators["density"] = cfg.get(
+            "estimators.density",
+            DiskDensity(),
+        )
+
+    if cfg.get("estimators.enabled.pair_correlation", False):
+        estimators["pair_correlation"] = cfg.get(
+            "estimators.pair_correlation",
+            DiskPairCorrelation(),
+        )
+
+    if cfg.get("estimators.enabled.one_rdm", False):
+        estimators["one_rdm"] = cfg.get(
+            "estimators.one_rdm",
+            DiskOneRDM(flux=system_config.flux, f_log_psi=wf.logpsi),
+        )
+
+    return estimators
 
 
 def make_spherical_estimators(

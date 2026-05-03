@@ -42,7 +42,6 @@ class MonopoleOrbitals(nn.Module):
     Q: float
     nspins: tuple[int, int]
     ndets: int
-
     def setup(self) -> None:
         m = np.arange(-self.Q, self.Q + 1)
         self.norm_factor = jnp.array(np.sqrt(ss.comb(2 * self.Q, self.Q - m)))
