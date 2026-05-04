@@ -6,7 +6,7 @@
 import jax
 from jax import numpy as jnp
 
-from jaqmc.app.hall.config import HallSphericalConfig, HallSystemConfig
+from jaqmc.app.hall.config import HallSphericalConfig, HallDiskConfig, HallSystemConfig
 from jaqmc.array_types import PRNGKey
 from jaqmc.data import BatchedData, Data
 
@@ -27,7 +27,10 @@ class HallData(Data):
 def data_init(config: HallSystemConfig, size: int, rngs: PRNGKey):
     if isinstance(config, HallSphericalConfig):
         return spherical_data_init(config, size, rngs)
-    raise NotImplementedError("Geometries other than spherical is not implemented.")
+    elif isinstance(config, HallDiskConfig):
+        a = jnp.sqrt(2 * config.flux) if config.radius is None else config.radius
+        return disk_data_init(config, size, rngs, a)
+    raise NotImplementedError("Geometries other than spherical or disk is not implemented.")
 
 
 def spherical_data_init(
@@ -48,6 +51,35 @@ def spherical_data_init(
     theta = jnp.arccos(jax.random.uniform(key1, (size, nelec), minval=-1, maxval=1))
     phi = jax.random.uniform(key2, (size, nelec), minval=-jnp.pi, maxval=jnp.pi)
     electrons = jnp.stack([theta, phi], axis=-1)
+    return BatchedData(
+        data=HallData(electrons=electrons),
+        fields_with_batch=["electrons"],
+    )
+
+def disk_data_init(
+    config: HallDiskConfig, size: int, rngs: PRNGKey, a: float = None
+) -> BatchedData[HallData]:
+    """Create uniform initial samples on the disk.
+
+    Args:
+        config: Hall system configuration.
+        size: Batch size (number of walkers).
+        rngs: Random number generator key.
+        a: radius of the disk. If None, it will be set to sqrt(2*Q) where Q is the flux.
+
+    Returns:
+        Batched data with uniformly distributed electrons on the disk.
+    """
+    nelec = sum(config.nspins)
+    key1, key2 = jax.random.split(rngs)
+    u = jax.random.uniform(key1, (size, nelec), minval=0, maxval=1)
+    
+    # 生成圆盘上的均匀分布
+    r = jnp.sqrt(u) * a
+    theta = jax.random.uniform(key2, (size, nelec), minval=0, maxval=2 * jnp.pi)
+    x = r * jnp.cos(theta)
+    y = r * jnp.sin(theta)
+    electrons = jnp.stack([x, y], axis=-1)
     return BatchedData(
         data=HallData(electrons=electrons),
         fields_with_batch=["electrons"],

@@ -9,7 +9,6 @@ from typing import Any, Literal
 from jax import numpy as jnp
 from jax.numpy import cos, sin
 
-from DeepHall.conf_potential import single_quad
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
 from jaqmc.estimator.base import Estimator
@@ -40,7 +39,7 @@ class DiskPotential(Estimator):
     radius: float = 1.0
     N: int = 6
     flux: int = 18
-    d: int = 0.1
+    d: float = 0.1
     interaction_strength: float = 1.0
 
     def single_quad(self, r: float, 
@@ -62,22 +61,22 @@ class DiskPotential(Estimator):
             k2 = ellipk(-m2)
             # m1 = np.clip(m1, None, 1.0)   # 数值稳定
             # m2 = np.clip(m2, None, 1.0)
-            f = 2*rp * (k1 / jnp.sqrt(A) 
-                    + k2 / jnp.sqrt(B))
+            f = 2*rp * (k1 / np.sqrt(A) 
+                    + k2 / np.sqrt(B))
 
             return f
     
         f = lambda rp: integrand(rp, r, d)
         I, err = quad(f, 0.0, a, epsrel=epsrel, limit=limit)
-        pref = - N / jnp.pi / a**2
+        pref = - N / np.pi / a**2
 
         return pref * I, err
 
     def make_conf_potential(self, r_vals, 
             limit: int=1000, 
             epsrel: float=1e-4):
-        Vc = jnp.zeros_like(r_vals)
-        err = jnp.zeros_like(r_vals)
+        Vc = np.zeros_like(r_vals)
+        err = np.zeros_like(r_vals)
         i=0
         for r in r_vals:
 

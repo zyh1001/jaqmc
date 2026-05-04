@@ -18,7 +18,7 @@ from jaqmc.utils.config import configurable_dataclass
 
 
 @configurable_dataclass
-class SphericalPenalizedLoss(Estimator):
+class DiskPenalizedLoss(Estimator):
     """Adds angular momentum penalties to total energy for state selection.
 
     Reads ``total_energy``, ``angular_momentum_z``,

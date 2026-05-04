@@ -88,7 +88,7 @@ class DiskKinetic(Estimator):
         
         angular_momentum_z_square = -(D_f**2 + D2_f)
         angular_momentum_z = jnp.sum(x * grad_y.imag - y * grad_x.imag)
-        
+       
         results = {
             "energy:kinetic": kinetic_energy,
             "observable:angular_momentum_z": angular_momentum_z.real,

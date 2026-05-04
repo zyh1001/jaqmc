@@ -60,6 +60,7 @@ class DiskOrbitals(nn.Module):
         features = [self.num_orbitals, sum(self.nspins), self.ndets]
         self.orbitals_real = SplitChannelDense(channels=self.nspins, features=features)
         self.orbitals_imag = SplitChannelDense(channels=self.nspins, features=features)
+        self.sigma = self.param("sigma", nn.initializers.constant(0.25), (self.num_orbitals,))
 
     def __call__(
         self, h_one: jnp.ndarray, x: jnp.ndarray, y: jnp.ndarray
@@ -68,7 +69,7 @@ class DiskOrbitals(nn.Module):
         
         r_square = (x**2 + y**2)[..., None]
         
-        sigma = self.param("sigma", nn.initializers.constant(0.25), (self.num_orbitals,))
+        sigma = self.sigma
         
         if self.envelope_type == EnvelopeType.no_m_learnable:
             envelope = jnp.exp(- r_square * jnp.abs(sigma))

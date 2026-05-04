@@ -6,9 +6,11 @@
 from ._common import LaplacianMode
 from .euclidean import EuclideanKinetic
 from .spherical import SphericalKinetic
+from .disk import DiskKinetic
 
 __all__ = [
     "EuclideanKinetic",
     "LaplacianMode",
     "SphericalKinetic",
+    "DiskKinetic"
 ]

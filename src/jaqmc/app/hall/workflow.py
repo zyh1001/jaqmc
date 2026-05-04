@@ -173,15 +173,16 @@ def make_disk_estimators(
                 interaction_type=system_config.interaction_type,
                 monopole_strength=Q,
                 radius=radius,
-                distance=system_config.d,
+                N=system_config.nspins[0] + system_config.nspins[1],
+                flux=system_config.flux,
+                d=system_config.d,
                 interaction_strength=system_config.interaction_strength,
-                nspins=system_config.nspins,
             ),
         )
         estimators["total"] = TotalEnergy()
 
         if system_config.lz_penalty or system_config.l2_penalty:
-            estimators["penalty"] = SphericalPenalizedLoss(
+            estimators["penalty"] = DiskPenalizedLoss(
                 lz_center=system_config.lz_center,
                 lz_penalty=system_config.lz_penalty,
                 l2_penalty=system_config.l2_penalty,
