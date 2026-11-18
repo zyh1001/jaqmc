@@ -34,3 +34,35 @@ docs/contrib/packages/
 jupyter_execute/
 # Synced notebooks
 notebooks/
+
+integration_test_results/
+
+# Cluster logs, training data and generated reports
+*.err
+*.errs
+*.out
+/.cache/
+/data/
+/Runs/
+/reports/
+/logs/
+/checkpoints/
+/*_ckpt_*.npz
+/*.npz
+/*.npy
+/*.h5
+/tatus --short
+
+# Local backups and generated validation reports
+/.backups/
+*.backup
+*.bak
+*.log
+/integration_validation.json
+/scripts/integration_tests/*_validation.json
+
+# Local reference archive containing excluded wavefunctions
+/tests/app/hall/reference/local-src.tar.gz
+
+# Excluded disk wavefunctions
+/src/jaqmc/app/hall/wavefunction/disk/symbolic*

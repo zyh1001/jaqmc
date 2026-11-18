@@ -91,30 +91,27 @@ def _molecule_reference(
     )
 
 
-def test_load_validates_geometry_and_spins_and_warns_on_symbols(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
+@pytest.mark.parametrize(
+    ("reference", "error"),
+    [
+        (_molecule_reference(symbols=("He",)), "atoms"),
+        (_molecule_reference(coords=np.asarray([[0.0, 0.0, 1.0]])), "geometry"),
+        (_molecule_reference(charges=np.zeros(1, dtype=int)), "charges"),
+        (_molecule_reference(nspins=(0, 1)), "electron spins"),
+    ],
+)
+def test_load_rejects_mismatched_configured_molecule(tmp_path, reference, error):
     system = MoleculeConfig(
         atom_configs=[AtomConfig(symbol="H", coords=[0.0, 0.0, 0.0])],
         s_z=0.5,
     )
     path = tmp_path / "reference.npz"
-    _molecule_reference(
-        symbols=("H1",),
-        coords=np.asarray([[0.0, 0.0, 5e-5]]),
-        charges=np.zeros(1, dtype=int),
-    ).save(path)
+    _molecule_reference().save(path)
 
     assert load_reference(path, system).nspins == (1, 0)
-    assert "Reference atoms" in caplog.text
-    assert "Reference effective charges" in caplog.text
+    reference.save(path)
 
-    _molecule_reference(coords=np.asarray([[0.0, 0.0, 1.0]])).save(path)
-    with pytest.raises(ValueError, match="geometry"):
-        load_reference(path, system)
-
-    _molecule_reference(nspins=(0, 1)).save(path)
-    with pytest.raises(ValueError, match="electron spins"):
+    with pytest.raises(ValueError, match=error):
         load_reference(path, system)
 
 

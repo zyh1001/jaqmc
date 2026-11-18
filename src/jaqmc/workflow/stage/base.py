@@ -122,6 +122,17 @@ class WorkStage[StateT: StageState](ABC):
             NumPyCheckpointManager(save_dir, restore_path, prefix=prefix),
         )
 
+    def restore_for_run(
+        self, ckpt: NumPyCheckpointManager, state: StateT, rngs: PRNGKey
+    ) -> tuple[int, StateT]:
+        """Restore the state used by the stage run loop.
+
+        Returns:
+            The starting step and restored state.
+        """
+        del rngs
+        return ckpt.restore(state)
+
     def run(self, state: StateT, context: RunContext, rngs: PRNGKey) -> StateT:
         """Execute the full run loop.
 
@@ -148,7 +159,7 @@ class WorkStage[StateT: StageState](ABC):
             initial_step, restored = 0, state
             restore_dir = None
         else:
-            initial_step, restored = ckpt.restore(state)
+            initial_step, restored = self.restore_for_run(ckpt, state, rngs)
             restore_dir = (
                 ckpt.restore_path.parent
                 if ckpt.restore_path.is_file()

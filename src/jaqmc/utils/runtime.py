@@ -178,5 +178,6 @@ def configure_runtime(cfg: ConfigManagerLike, *, dry_run: bool = False) -> None:
     """
     cfg.get("logging", LoggingConfig).apply()
     cfg.get("jax", JaxConfig).apply()
+    distributed = cfg.get("distributed", DistributedConfig)
     if not dry_run:
-        cfg.get("distributed", DistributedConfig).init_runtime()
+        distributed.init_runtime()

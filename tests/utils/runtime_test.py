@@ -184,6 +184,7 @@ def test_configure_runtime_skips_distributed_init_on_dry_run(mocker):
     )
 
     configure_runtime(cfg, dry_run=True)
+    cfg.finalize()
 
     logging_apply.assert_called_once_with()
     jax_apply.assert_called_once()

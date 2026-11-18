@@ -27,6 +27,14 @@ The sphere radius defaults to `sqrt(Q)` where `Q = flux / 2`. Override it with
 `system.radius`. For the contextual defaults used by training, see the
 [training configuration reference](#hall-train-system).
 
+Disk and torus systems are selected with `system.module`; see
+<project:geometries.md> for their coordinates, Hamiltonians and observables.
+Configuration entry points and compute-node checks are described in
+<project:structure-tests.md>.
+
+Fixed-background local-energy scans from merged training data are described in
+<project:conditional-energy.md>.
+
 ## How It Works
 
 Each electron is sampled on the sphere as `(theta, phi)`. The default
@@ -186,6 +194,11 @@ penalties were used. Shared debug, resume, and evaluation recipes are in
 :hidden:
 
 energy-corrections.md
+geometries.md
+structure-tests.md
+conditional-energy.md
+observables-evaluation.md
 Training <train.md>
 Evaluation <eval.md>
+../../disk_local_energy.md
 ```

@@ -8,6 +8,7 @@ from operator import itemgetter
 from typing import Any, ClassVar
 
 import jax
+import numpy as np
 import optax
 from jax import numpy as jnp
 
@@ -17,7 +18,9 @@ from jaqmc.estimator.base import Estimator
 from jaqmc.estimator.loss_grad import LossAndGrad
 from jaqmc.optimizer.base import OptimizerLike
 from jaqmc.optimizer.kfac import KFACOptimizer
+from jaqmc.optimizer.kfac.kfac import KFACState
 from jaqmc.utils import parallel_jax
+from jaqmc.utils.checkpoint import NumPyCheckpointManager, tree_to_npz
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.wiring import check_wired, wire
 from jaqmc.wavefunction.base import NumericWavefunctionEvaluate
@@ -25,6 +28,41 @@ from jaqmc.writer import Writers
 
 from .base import StageAbort, WorkStageConfig
 from .sampling import SamplingStageBuilder, SamplingState, SamplingWorkStage
+
+
+def validate_resume_arrays(saved: Any, expected: dict[str, Any]) -> set[str]:
+    """Validate saved training arrays before rebuilding optimizer state.
+
+    Returns:
+        The names of all wavefunction parameter arrays.
+
+    Raises:
+        ValueError: If saved names, shapes, dtypes or values are incompatible.
+    """
+    expected_params = {key for key in expected if key.startswith("params/")}
+    saved_params = {key for key in saved.files if key.startswith("params/")}
+    if expected_params != saved_params:
+        raise ValueError(
+            f"Checkpoint parameter names differ: "
+            f"missing={sorted(expected_params - saved_params)}, "
+            f"extra={sorted(saved_params - expected_params)}"
+        )
+    expected_optax = {key for key in expected if key.startswith("opt_state/optax/")}
+    saved_optax = {key for key in saved.files if key.startswith("opt_state/optax/")}
+    if expected_optax != saved_optax:
+        raise ValueError("Checkpoint learning-rate state does not match")
+    for key, reference in expected.items():
+        if key not in saved:
+            raise ValueError(f"Missing checkpoint array: {key}")
+        value = saved[key]
+        if value.shape != reference.shape or value.dtype != reference.dtype:
+            raise ValueError(
+                f"Checkpoint array {key} has {value.shape}/{value.dtype}; "
+                f"expected {reference.shape}/{reference.dtype}"
+            )
+        if np.issubdtype(value.dtype, np.inexact) and not np.isfinite(value).all():
+            raise ValueError(f"Nonfinite checkpoint array: {key}")
+    return expected_params
 
 
 @configurable_dataclass
@@ -36,10 +74,13 @@ class VMCWorkStageConfig(WorkStageConfig):
             ``True`` checks all stat keys, ``False`` disables the check,
             or pass a comma-separated string of specific keys to monitor
             (e.g. ``"loss"``).
+        reset_kfac_state_on_restore: Restore the training state and learning-rate
+            counter while initializing new KFAC curvature state.
     """
 
     stop_on_nan: bool | str = "loss"
     burn_in: int = 100
+    reset_kfac_state_on_restore: bool = False
 
 
 class VMCState(SamplingState):
@@ -233,6 +274,66 @@ class VMCWorkStage(SamplingWorkStage):
             estimator_state=base.estimator_state,
             opt_state=opt_state,
         )
+
+    def restore_for_run(
+        self, ckpt: NumPyCheckpointManager, state: VMCState, rngs: PRNGKey
+    ) -> tuple[int, VMCState]:
+        """Restore saved training data and optionally initialize KFAC anew.
+
+        Returns:
+            The starting step and restored training state.
+
+        Raises:
+            ValueError: If the optimizer or saved arrays are incompatible.
+        """
+        if not self.config.reset_kfac_state_on_restore:
+            return super().restore_for_run(ckpt, state, rngs)
+        if not isinstance(self.optimizer, KFACOptimizer):
+            raise ValueError("reset_kfac_state_on_restore requires KFACOptimizer")
+        if not ckpt.restore_path.is_file():
+            raise ValueError("KFAC reset requires an explicit checkpoint file")
+
+        template = replace(state, opt_state={"optax": state.opt_state.optax})
+        expected = tree_to_npz(template)
+        with (
+            ckpt.restore_path.open("rb") as stream,
+            np.load(stream, allow_pickle=False) as saved,
+        ):
+            expected_params = validate_resume_arrays(saved, expected)
+        self.logger.info(
+            "Strictly restoring %d parameter arrays from %s: %s",
+            len(expected_params),
+            ckpt.restore_path,
+            {
+                key: (expected[key].shape, str(expected[key].dtype))
+                for key in sorted(expected_params)
+            },
+        )
+        initial_step, restored = ckpt.restore(template, strict=True)
+        restored_arrays = tree_to_npz(restored)
+        with (
+            ckpt.restore_path.open("rb") as stream,
+            np.load(stream, allow_pickle=False) as saved,
+        ):
+            for key in expected_params:
+                if not np.array_equal(np.asarray(restored_arrays[key]), saved[key]):
+                    raise ValueError(
+                        f"Restored parameter differs from checkpoint: {key}"
+                    )
+        self.logger.info("Verified all restored parameter arrays match the checkpoint")
+        del state
+        local_data = jax.tree.map(parallel_jax.addressable_data, restored.batched_data)
+        fresh = self.optimizer.init(
+            jax.tree.map(parallel_jax.addressable_data, restored.params),
+            batched_data=local_data,
+            rngs=jax.random.fold_in(rngs, 1),
+        )
+        opt_state = jax.device_put(
+            KFACState(optax=restored.opt_state["optax"], kfac=fresh.kfac),
+            parallel_jax.make_sharding(parallel_jax.SHARE_PARTITION),
+        )
+        self.logger.info("Restored learning-rate state; initialized new KFAC state")
+        return initial_step, replace(restored, opt_state=opt_state)
 
     def compute_step(
         self, state: VMCState, rngs: PRNGKey

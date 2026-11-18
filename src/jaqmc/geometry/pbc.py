@@ -176,12 +176,6 @@ def _lll_reduced_basis(lattice: jnp.ndarray, delta: float = 0.75) -> jnp.ndarray
     return jnp.asarray(basis, dtype=lattice.dtype)
 
 
-def _pairwise_diff(ra: jnp.ndarray, rb: jnp.ndarray) -> jnp.ndarray:
-    if ra.ndim > 1 and rb.ndim > 1:
-        return ra[..., :, None, :] - rb[..., None, :, :]
-    return ra - rb
-
-
 def build_distance_fn(lattice: jnp.ndarray):
     """Computes minimal image distance between particles under PBC.
 
@@ -215,7 +209,7 @@ def build_distance_fn(lattice: jnp.ndarray):
         lat_diag = jnp.diagonal(lattice)
 
         def distance_fn(ra: jnp.ndarray, rb: jnp.ndarray):
-            diff = _pairwise_diff(ra, rb)
+            diff = ra[..., :, None, :] - rb[..., None, :, :]
             disp = (diff + lat_diag / 2) % lat_diag - lat_diag / 2
             dist = jnp.linalg.norm(disp, axis=-1)
             return disp, dist
@@ -227,7 +221,7 @@ def build_distance_fn(lattice: jnp.ndarray):
         reciprocal_lattice = jnp.linalg.inv(lattice)
 
         def distance_fn(ra: jnp.ndarray, rb: jnp.ndarray):
-            diff = _pairwise_diff(ra, rb)
+            diff = ra[..., :, None, :] - rb[..., None, :, :]
             frac_diff = diff @ reciprocal_lattice
             frac_diff_mic = (frac_diff + 0.5) % 1.0 - 0.5
             disp = frac_diff_mic @ lattice
@@ -246,7 +240,7 @@ def build_distance_fn(lattice: jnp.ndarray):
         shifts = point_list @ reduced
 
         def distance_fn(ra: jnp.ndarray, rb: jnp.ndarray):
-            diff = _pairwise_diff(ra, rb)
+            diff = ra[..., :, None, :] - rb[..., None, :, :]
             frac_diff = diff @ inv_reduced
             wrapped = diff - jnp.round(frac_diff) @ reduced
             diff_all = wrapped[..., None, :] + shifts

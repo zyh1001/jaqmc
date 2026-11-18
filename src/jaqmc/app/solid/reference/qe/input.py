@@ -97,7 +97,7 @@ def render_input(
     system: SolidConfig,
     solver: SolidQESolverConfig,
 ) -> str:
-    """Render an SCF input using the functional declared by the UPFs.
+    """Render a complete Quantum ESPRESSO input for a PBE SCF calculation.
 
     Returns:
         The complete ``qe.in`` contents.

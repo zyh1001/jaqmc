@@ -11,25 +11,17 @@ from tests.app.solid.reference.helpers import _solid_system
 from tests.utils.reference_fixtures import make_dummy_solid_reference
 
 
-def test_load_validates_the_configured_solid(tmp_path, caplog):
+def test_load_validates_the_configured_solid(tmp_path):
     system = _solid_system(
         supercell_matrix=[[2, 0, 0], [0, 1, 0], [0, 0, 1]],
         twist=[0.25, 0.0, 0.0],
     )
     path = tmp_path / "reference.npz"
-    base = make_dummy_solid_reference(system)
-    reference = replace(
-        base,
-        symbols=("He1",),
-        atom_coords=base.atom_coords + 5e-5,
-    )
-    reference.save(path)
+    make_dummy_solid_reference(system).save(path)
 
     assert load_reference(path, system).nspins == tuple(
         value * system.scale for value in system.electron_spins
     )
-    assert "Reference atoms" in caplog.text
-
     with pytest.raises(ValueError, match="k-points"):
         load_reference(
             path,
@@ -38,24 +30,13 @@ def test_load_validates_the_configured_solid(tmp_path, caplog):
             ),
         )
 
-    replace(
-        base,
-        atom_coords=np.asarray([[0.0, 0.0, 1.0]]),
-    ).save(path)
-    with pytest.raises(ValueError, match="geometry"):
-        load_reference(path, system)
-
 
 def test_load_rejects_same_scale_supercell_mismatch(tmp_path):
     prepared = _solid_system(supercell_matrix=[[2, 0, 0], [0, 1, 0], [0, 0, 1]])
     used = _solid_system(supercell_matrix=[[1, 0, 0], [0, 2, 0], [0, 0, 1]])
     assert prepared.scale == used.scale
     path = tmp_path / "reference.npz"
-    replace(
-        make_dummy_solid_reference(prepared),
-        alpha_counts=np.asarray([1, 1]),
-        beta_counts=np.asarray([1, 1]),
-    ).save(path)
+    make_dummy_solid_reference(prepared).save(path)
 
     with pytest.raises(ValueError, match="k-points"):
         load_reference(path, used)
@@ -71,8 +52,8 @@ def test_load_accepts_permuted_and_g_wrapped_kpoints(tmp_path):
     wrapped = replace(
         reference,
         kpoints=kpoints,
-        alpha_counts=np.asarray([1, 1]),
-        beta_counts=np.asarray([1, 1]),
+        alpha_counts=reference.alpha_counts[::-1],
+        beta_counts=reference.beta_counts[::-1],
     )
     path = tmp_path / "reference.npz"
     wrapped.save(path)
@@ -80,19 +61,17 @@ def test_load_accepts_permuted_and_g_wrapped_kpoints(tmp_path):
     load_reference(path, system)
 
 
-def test_load_accepts_occupied_subset_and_ignores_empty_kpoints(tmp_path):
-    system = _solid_system(
-        supercell_matrix=[[2, 0, 0], [0, 1, 0], [0, 0, 1]],
-        twist=[0.25, -0.1, 0.2],
-    )
+def test_load_rejects_symmetry_reduced_kpoint_subset(tmp_path):
+    system = _solid_system(supercell_matrix=[[2, 0, 0], [0, 1, 0], [0, 0, 1]])
     full = make_dummy_solid_reference(system)
-    selected = replace(
+    reduced = replace(
         full,
-        kpoints=np.concatenate([full.kpoints[:1], [[0.123, 0.456, 0.789]]]),
-        alpha_counts=np.asarray([full.nspins[0], 0]),
-        beta_counts=np.asarray([full.nspins[1], 0]),
+        kpoints=full.kpoints[:1],
+        alpha_counts=np.asarray([full.nspins[0]]),
+        beta_counts=np.asarray([full.nspins[1]]),
     )
     path = tmp_path / "reference.npz"
-    selected.save(path)
+    reduced.save(path)
 
-    assert load_reference(path, system).nspins == full.nspins
+    with pytest.raises(ValueError, match="k-points"):
+        load_reference(path, system)

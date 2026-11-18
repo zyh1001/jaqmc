@@ -185,6 +185,32 @@ For deeper analysis — convergence plots, error bars, and reporting guidelines 
 You can override any parameter from the command line. Use `--dry-run` to see the full resolved configuration without actually running a simulation. See <project:../guide/configuration.md> for details.
 ```
 
+## Cluster Shell Scripts
+
+All project shell entrypoints live under the repository-root `scripts/`
+directory, including the `scripts/integration_tests/` wrappers. For example,
+submit the disk training wrapper from the ParaCloud project root:
+
+```bash
+cd /home/jqguo/project/jaqmc_merge
+sbatch scripts/train_disk.sh
+```
+
+Slurm executes a copied script. Batch wrappers therefore use the job working
+directory as the project root, while direct local invocations resolve the root
+from the script location. `PROJECT_ROOT` overrides either choice. Submissions
+from another directory can set the job working directory explicitly:
+
+```bash
+sbatch --chdir=/home/jqguo/project/jaqmc_merge \
+  /home/jqguo/project/jaqmc_merge/scripts/train_disk.sh
+```
+
+Each machine has its own `.venv`. The disk training and recovery wrappers use
+the sibling `data/` directory by default, with `DATA_ROOT` selecting another
+location. Existing checkpoints and external analysis programs remain separate
+inputs. See <project:../systems/hall/disk-evaluation.md> for evaluation paths.
+
 ## Next Steps
 
 Now that you've run your first simulation, here are some directions to explore:

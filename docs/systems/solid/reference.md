@@ -20,17 +20,17 @@ contains `reference.npz`, the command generates a default PySCF reference in
   k-points from it — and additionally searches the `workflow.source_path` run
   directory.
 - The automatic job is KUHF, with automatic basis `cc-pVDZ` for all-electron
-  elements and `ccecpccpvdz` for `ccecp` and PH elements; other ECP families
-  need a prepared reference. Automatic generation also requires each atom to
-  use the effective charge derived from `system.pp`; custom per-atom charges
-  need a prepared reference.
+  and `ccecpccpvdz` for `ccecp` elements; other ECP families need a prepared
+  reference. Automatic generation also requires each atom to use the effective
+  charge derived from `system.pp`; custom per-atom charges need a prepared
+  reference.
 - An explicit path is loaded in place and not copied into
   `workflow.save_path`; evaluation therefore requires the same explicit path.
 
-A loaded reference must match the configured primitive-cell atomic
-coordinates, primitive lattice, and the alpha and beta electron counts in the
-simulation cell. Its occupied k-points must satisfy the simulation cell's
-[twisted boundary conditions](#twisted-boundary-conditions).
+Whether found by the search or passed explicitly, a loaded reference must use
+the same unreduced twisted-supercell k-point mesh as the QMC run, modulo
+primitive reciprocal lattice vectors; a mismatched reference is rejected when
+loaded.
 
 ## Custom reference preparation
 
@@ -145,7 +145,7 @@ jaqmc solid reference prepare --yml lih_solid.yml \
 ```
 
 Omitted `solver.basis` uses the automatic double-zeta mapping:
-`cc-pVDZ` for all-electron atoms and `ccecpccpvdz` for `ccecp` and PH
+`cc-pVDZ` for all-electron atoms and `ccecpccpvdz` for `ccecp`
 (`ccecpccpvdz` is PySCF's spelling of the ccECP-cc-pVDZ family). With
 `system.pp.Li=ccecp` on that cell, the mapping is `Li=ccecpccpvdz` and
 `H=cc-pVDZ`:
@@ -190,15 +190,16 @@ object, the generated job raises before calling `mf.kernel()`.
 
 ## Quantum ESPRESSO references
 
-Quantum ESPRESSO (QE) provides a plane-wave reference. JaQMC accepts collinear
-SCF output from QE 7.x, with wavefunction files written in HDF5 format. Output
-reporting an unconverged SCF calculation is rejected.
+Quantum ESPRESSO (QE) provides a plane-wave reference. JaQMC currently accepts
+only collinear PBE SCF output from QE 7.x, with wavefunction files written in
+HDF5 format. Output from other exchange-correlation functionals is rejected.
 Conversion expects an unreduced k-point mesh (`nosym=.true.`,
-`noinv=.true.`), which the generated input already sets.
+`noinv=.true.`) on the QMC twisted-supercell k-points, which the generated
+input already sets.
 
 ### QE prerequisites
 
-QE reference jobs require UPF files and a `pw.x` build
+QE reference jobs require UPFs made for the PBE functional and a `pw.x` build
 with HDF5 support. For a CMake QE build, `-DQE_ENABLE_HDF5=ON` enables that
 support. The [official Quantum ESPRESSO CMake build
 guide](https://gitlab.com/QEF/q-e/-/wikis/Developers/CMake-build-system)
@@ -312,25 +313,21 @@ solver:
   degauss: 0.01
 ```
 
-The value `smearing: off` selects fixed occupations. The converted reference
-is a single determinant and requires an integer electron count for each spin.
-When QE reports fractional occupations, conversion logs a warning and fills
-the lowest-energy orbitals across the full k-point mesh separately for each spin.
-
-Conversion accounts for QE's k-point weights and spin degeneracy when
-determining electron counts and checks the weighted total against the
-electron count reported by QE.
+The value `smearing: off` selects fixed occupations. When QE reports
+fractional occupations, conversion logs a warning and fills the lowest-energy orbitals.
+Without spin polarization, QE counts spin-up and spin-down electrons together,
+with up to two electrons per orbital, so conversion assigns half of them to
+each spin. A spin-polarized calculation already counts the two spins
+separately.
 
 ### Generated QE input constraints
 
-JaQMC writes an explicit, unreduced QMC
-[twisted-supercell](../../guide/periodic-boundaries.md) k-point list and sets
-`nosym=.true.` and `noinv=.true.`. Conversion requires finite, positive,
-uniform k-point weights. K-point lists with unequal
-weights or zero-weight band-path points cannot be converted.
-QE k-point weights cannot recover the plane-wave coefficients omitted from a
-symmetry- or time-reversal-reduced mesh. Existing conventional QE outputs that
-used either reduction cannot be converted.
+JaQMC writes and expects an explicit, unreduced QMC
+[twisted-supercell](../../guide/periodic-boundaries.md) k-point list which sets
+`nosym=.true.` and `noinv=.true.`. QE k-point weights cannot
+recover the plane-wave coefficients omitted from a symmetry- or
+time-reversal-reduced mesh. Existing conventional QE outputs that used either
+reduction cannot be converted.
 
 A nonzero `system.s_z` selects collinear spin (`nspin = 2`) and sets
 `tot_magnetization` to `n_alpha - n_beta`. The generated k-point list is the QMC
